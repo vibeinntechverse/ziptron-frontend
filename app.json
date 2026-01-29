@@ -1,29 +1,64 @@
 {
   "expo": {
     "name": "Ziptron",
-    "slug": "Ziptron",
+    "slug": "ziptron",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
+    "scheme": "ziptron",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.anonymous.ziptron",
+      "config": {
+        "googleMapsApiKey": "AIzaSyBD_uLajT5NK-ywRqDxxTP7jAfKx543C8c"
+      },
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Ziptron needs your location to find nearby charging stations and navigate you to them.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Ziptron needs your location to provide turn-by-turn navigation to charging stations."
+      }
     },
     "android": {
+      "package": "com.anonymous.ziptron",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyBD_uLajT5NK-ywRqDxxTP7jAfKx543C8c"
+        }
+      },
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static"
+          }
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow Ziptron to use your location."
+        }
+      ]
+    ]
   }
 }
