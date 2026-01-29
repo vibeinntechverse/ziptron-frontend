@@ -1,0 +1,678 @@
+/ ======================================================
+// GENERATOR & DATASOURCE (Postgres) - OPTIMIZED
+// ======================================================
+generator postgres_client {
+  provider = "prisma-client"
+  output   = "../../generated/postgres"
+}
+ 
+datasource postgres {
+  provider = "postgresql"
+   url      = env("DATABASE_URL_POSTGRES")
+}
+ 
+// ======================================================
+// ENUMS
+// ======================================================
+enum UserRole {
+  USER
+  STATION_OWNER
+  ADMIN
+  SUPPORT
+}
+ 
+enum VehicleType {
+  SEDAN
+  HATCHBACK
+  SUV
+  CROSSOVER
+  COUPE
+  CONVERTIBLE
+  VAN
+  MPV
+}
+ 
+enum ChargingSessionStatus {
+  ONGOING
+  COMPLETED
+  FAILED
+}
+ 
+enum TransactionType {
+  CREDIT
+  DEBIT
+}
+ 
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+ 
+enum ConnectorType {
+  CCS2
+  TYPE2
+  CHADEMO
+  GB_T
+}
+ 
+enum ChargingGunStatus {
+  AVAILABLE
+  OCCUPIED
+  CHARGING
+  FAULT
+  OFFLINE
+  MAINTENANCE
+}
+ 
+ 
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+ 
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+ 
+enum SessionStopReason {
+  USER_STOP
+  COMPLETED
+  ERROR
+  POWER_LOSS
+  VEHICLE_DISCONNECTED
+}
+ 
+ 
+enum BookingStatus {
+  RESERVED
+  ACTIVE
+  CANCELLED
+  EXPIRED
+  NO_SHOW
+}
+ 
+enum PaymentMethod {
+  WALLET
+  CARD
+  UPI
+}
+ 
+enum StationAccessType {
+  PUBLIC
+  PRIVATE
+}
+ 
+ 
+enum PricingType {
+  PER_KWH
+  PER_MINUTE
+  IDLE_FEE
+}
+ 
+enum SessionAuthMethod {
+  APP_QR
+  RFID
+  NFC
+  FLEET
+}
+enum WalletHoldStatus {
+  ACTIVE
+  CONSUMED
+  RELEASED
+}
+ 
+enum ChargerProtocol {
+  HTTP
+  OCPP_1_6
+  OCPP_2_0_1
+}
+ 
+ 
+// ======================================================
+// MODELS
+// ======================================================
+ 
+// --- USER & AUTHENTICATION ---
+model User {
+  id                  String                @id @default(dbgenerated("gen_random_uuid()")) @postgres.Uuid
+  clerkId             String                @unique
+  role                UserRole              @default(USER)
+  email               String                @unique
+  phone               String?            
+  walletBalance       Decimal               @default(0) @postgres.Decimal(12, 2)
+  isActive            Boolean               @default(true)
+  createdAt           DateTime              @default(now()) @postgres.Timestamptz(3)
+  updatedAt           DateTime              @updatedAt @postgres.Timestamptz(3)
+ 
+  // Relations      
+  vehicles            UserVehicle[]
+  transactions        Transaction[]
+  walletLedger        WalletLedger[]
+  walletHold          WalletHold[]
+  subscriptions       UserSubscription[]
+  stations            ChargingStation[]     @relation("OwnerStations")
+  bookings            ChargingBooking[]
+  payments            Payment[]
+  rfidCards           RfidCard[]
+  reviews             StationReview[]
+  tickets             Ticket[]
+  chatSessions        ChatSession[]
+ 
+  // Indexes
+  @@index([email, isActive])
+  @@index([role, isActive])
+  @@index([createdAt])
+  @@index([phone])
+  @@map("users")
+}
+ 
+// --- VEHICLE MANAGEMENT ---
+model VehicleCatalog {
+  id              Int                 @id @default(autoincrement())
+  brand           String              @postgres.VarChar(100)
+  model           String              @postgres.VarChar(100)
+  year            Int                 @postgres.SmallInt
+  batteryCapacity Float               @postgres.Real
+  vehicleType     VehicleType
+  imageUrl        String?             @postgres.Text   // 👈 NEW
+  totalRange      Float               @postgres.Real
+  isActive        Boolean             @default(true)
+  createdAt       DateTime            @default(now()) @postgres.Timestamptz(3)
+  updatedAt       DateTime            @updatedAt @postgres.Timestamptz(3)
+ 
+  vehicles        UserVehicle[]
+  connectors      VehicleConnectorSupport[]
+ 
+  @@index([brand, model, year])
+  @@index([vehicleType, isActive])
+  @@index([isActive])
+  @@unique([brand, model, year], name: "unique_vehicle_per_year")
+  @@map("vehicle_catalog")
+}
+ 
+ 
+model VehicleConnectorSupport {
+  catalogId         Int
+  connectorType     ConnectorType
+  catalog           VehicleCatalog      @relation(fields: [catalogId], references: [id], onDelete: Cascade)
+ 
+  @@id([catalogId, connectorType])
+  @@index([connectorType])
+  @@map("vehicle_connector_support")
+}
+ 
+model UserVehicle {
+  id            String                   @id @default(uuid()) @postgres.Uuid
+  userId        String                   @postgres.Uuid
+  catalogId     Int                  
+  vehicleNo     String                   @unique @postgres.VarChar(50)
+  createdAt     DateTime                 @default(now()) @postgres.Timestamptz(3)
+  updatedAt     DateTime                 @updatedAt @postgres.Timestamptz(3)
+  user          User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  catalog       VehicleCatalog           @relation(fields: [catalogId], references: [id])
+  sessions      ChargingSession[]
+  bookings      ChargingBooking[]
+ 
+  // Indexes
+  @@index([userId, catalogId])
+  @@index([catalogId])
+  @@index([createdAt])
+  @@map("user_vehicles")
+}
+ 
+// --- CHARGING INFRASTRUCTURE ---
+model ChargingStation {
+  id                String                  @id @default(uuid()) @postgres.Uuid
+  ownerId           String                  @postgres.Uuid
+  name              String                  @postgres.VarChar(255)
+  address           String                  @postgres.Text
+  latitude          Float    
+  longitude         Float
+ 
+  // Access & status
+  accessType        StationAccessType       @default(PUBLIC)
+  isOperational     Boolean                 @default(true)
+  isActive          Boolean                 @default(true)
+  isVerified        Boolean                 @default(false)
+ 
+  // Pricing      
+  pricePerKwh       Decimal                @postgres.Decimal(10,2)
+  currency          String                  @default("INR")
+ 
+  // Operating hours      
+  isTwentyFourSeven Boolean?                @default(true)
+  operatingHours    Json?    
+ 
+  // Capability summary    
+  hasAC             Boolean                 @default(true)
+  hasDC             Boolean                 @default(false)
+ 
+  // Timestamps    
+  createdAt         DateTime                @default(now()) @postgres.Timestamptz(3)
+  updatedAt         DateTime                @updatedAt @postgres.Timestamptz(3)
+  deletedAt         DateTime?               @postgres.Timestamptz(3)
+ 
+  // Relations      
+  owner             User                    @relation("OwnerStations", fields: [ownerId], references: [id])
+  chargers          Charger[]
+  amenities         ChargingStationAmenity[]
+  media             StationMedia[]
+  reviews           StationReview[]
+  tickets           Ticket[]
+ 
+  @@index([latitude, longitude])
+  @@index([isActive, isOperational])
+  @@index([ownerId])
+  @@index([deletedAt])
+  @@map("charging_stations")
+}
+ 
+ 
+model StationAmenity {
+  id             Int                @id @default(autoincrement())
+  name           String             @unique @postgres.VarChar(100)
+  createdAt      DateTime           @default(now()) @postgres.Timestamptz(3)
+  stations       ChargingStationAmenity[]
+ 
+  @@map("station_amenities")
+}
+ 
+model ChargingStationAmenity {
+  stationId     String              @postgres.Uuid
+  amenityId     Int
+  station       ChargingStation     @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  amenity       StationAmenity      @relation(fields: [amenityId], references: [id], onDelete: Cascade)
+ 
+  @@id([stationId, amenityId])
+  @@index([amenityId])
+  @@map("charging_station_amenities")
+}
+ 
+model StationMedia {
+  id              String              @id @default(uuid()) @postgres.Uuid
+  stationId       String              @postgres.Uuid
+  url             String              @postgres.VarChar(500)
+  type            String              @postgres.VarChar(50)
+  createdAt       DateTime            @default(now()) @postgres.Timestamptz(3)          
+  station         ChargingStation     @relation(fields: [stationId], references: [id], onDelete: Cascade)
+ 
+  @@index([stationId])
+  @@map("station_media")
+}
+ 
+ 
+model Charger {
+  id                String              @id @default(uuid()) @postgres.Uuid
+  stationId         String              @postgres.Uuid
+ 
+  vendor            String
+  model             String
+  serialNumber      String              @unique
+  protocol          ChargerProtocol     @default(OCPP_1_6)
+ 
+  powerKW           Float               @postgres.Real
+  isActive          Boolean             @default(true)
+ 
+  // Connectivity
+  lastSeenAt        DateTime?
+  isOnline          Boolean             @default(false)
+ 
+  // OEM / future extensions
+  vendorData        Json?
+ 
+  createdAt         DateTime            @default(now()) @postgres.Timestamptz(3)
+  updatedAt         DateTime            @updatedAt @postgres.Timestamptz(3)
+ 
+  station           ChargingStation     @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  guns              ChargingGun[]
+ 
+  @@index([stationId, isActive])
+  @@index([isOnline])
+  @@map("chargers")
+}
+ 
+ 
+// ================================
+// CHARGING GUNS (OCPP CONNECTORS)
+// ================================
+model ChargingGun {
+  id                  String                 @id @default(uuid()) @postgres.Uuid
+  chargerId           String                 @postgres.Uuid
+ 
+  // OCPP-native connector id (1,2,3...)
+  connectorId         Int
+ 
+  connectorType       ConnectorType
+  status              ChargingGunStatus      @default(AVAILABLE)
+ 
+  // Last OCPP status details
+  ocppStatus          ChargingGunStatus      @default(AVAILABLE)
+  errorCode           String?
+  info                String?
+ 
+  lastHeartbeat       DateTime               @default(now()) @postgres.Timestamptz(3)
+ 
+  createdAt           DateTime               @default(now()) @postgres.Timestamptz(3)
+  updatedAt           DateTime               @updatedAt @postgres.Timestamptz(3)
+ 
+  charger             Charger                @relation(fields: [chargerId], references: [id], onDelete: Cascade)
+  sessions            ChargingSession[]
+  bookings            ChargingBooking[]
+  ocppTransactions    OcppTransaction[]
+ 
+  // Indexes
+  @@unique([chargerId, connectorId])
+  @@index([chargerId, status])
+  @@index([status, connectorType])
+  @@index([connectorType])
+  @@index([lastHeartbeat])
+  @@map("charging_guns")
+}
+ 
+ 
+// ================================
+// OCPP TRANSACTIONS
+// ================================
+model OcppTransaction {
+  id            String   @id @default(uuid()) @postgres.Uuid
+ 
+  ocppTxnId     Int
+ 
+  chargerId     String   @postgres.Uuid
+  gunId         String   @postgres.Uuid
+  sessionId     String   @postgres.Uuid
+ 
+  meterStart    Int
+  meterStop     Int?
+ 
+  startedAt     DateTime @postgres.Timestamptz(3)
+  endedAt       DateTime?
+ 
+  startReason   String?
+  stopReason    String?
+ 
+  // 🔥 ADD THIS
+  session       ChargingSession @relation(fields: [sessionId],references: [id],onDelete: Cascade)
+ 
+  gun           ChargingGun @relation(fields: [gunId], references: [id], onDelete: Cascade)
+ 
+  @@unique([chargerId, ocppTxnId])
+  @@index([sessionId])
+  @@index([gunId, endedAt])
+  @@map("ocpp_transactions")
+}
+ 
+ 
+ 
+ 
+ 
+// --- BOOKINGS ---
+model ChargingBooking {
+  id              String                  @id @default(uuid()) @postgres.Uuid
+  userId          String                  @postgres.Uuid
+  gunId           String                  @postgres.Uuid
+  vehicleId       String                  @postgres.Uuid
+  startTime       DateTime                @postgres.Timestamptz(3)
+  endTime         DateTime                @postgres.Timestamptz(3)
+  status          BookingStatus           @default(RESERVED)
+  createdAt       DateTime                @default(now()) @postgres.Timestamptz(3)
+  updatedAt       DateTime                @updatedAt @postgres.Timestamptz(3)
+ 
+  // Relations          
+  user            User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gun             ChargingGun              @relation(fields: [gunId], references: [id])
+  vehicle         UserVehicle              @relation(fields: [vehicleId], references: [id])
+  session         ChargingSession?
+ 
+  // Indexes
+  @@index([userId, status])
+  @@index([gunId, startTime])
+  @@index([vehicleId])
+  @@index([status, startTime])
+  @@index([createdAt])
+  @@map("charging_bookings")
+}
+ 
+// --- CHARGING SESSIONS ---
+model ChargingSession {
+  id                String                      @id @default(uuid()) @postgres.Uuid
+  bookingId         String?                     @unique @postgres.Uuid
+  userVehicleId     String                      @postgres.Uuid
+  gunId             String                      @postgres.Uuid
+  startMeter        Float                       @postgres.Real
+  endMeter          Float?                      @postgres.Real
+  startSoc          Int?                        @postgres.SmallInt
+  endSoc            Int?                        @postgres.SmallInt
+  energyUsed        Float?                      @postgres.Real
+  totalCost         Decimal?                    @postgres.Decimal(12, 2)
+  idleFee           Decimal?                    @postgres.Decimal(12, 2)
+  status            ChargingSessionStatus       @default(ONGOING)
+  authMethod        SessionAuthMethod    
+  stopReason        SessionStopReason?      
+  startTime         DateTime                    @default(now()) @postgres.Timestamptz(3)
+  endTime           DateTime?                   @postgres.Timestamptz(3)
+  createdAt         DateTime                    @default(now()) @postgres.Timestamptz(3)
+  updatedAt         DateTime                    @updatedAt @postgres.Timestamptz(3)
+ 
+  // Relations          
+  booking           ChargingBooking?            @relation(fields: [bookingId], references: [id])
+  gun               ChargingGun                 @relation(fields: [gunId], references: [id])
+  vehicle           UserVehicle                 @relation(fields: [userVehicleId], references: [id])
+  payments          Payment[]
+  ocppTransactions  OcppTransaction[]
+ 
+  // Indexes
+  @@index([userVehicleId, status])
+  @@index([gunId, status])
+  @@index([status, startTime])
+  @@index([startTime, endTime])
+  @@index([createdAt])
+  @@index([bookingId])
+  @@map("charging_sessions")
+}
+ 
+ 
+ 
+// --- WALLET & TRANSACTIONS ---
+ 
+ 
+model WalletHold {
+  id            String              @id @default(uuid()) @postgres.Uuid
+  userId        String              @postgres.Uuid
+  sessionId     String?             @postgres.Uuid
+  amount        Decimal             @postgres.Decimal(12, 2)
+  status        WalletHoldStatus
+  createdAt     DateTime            @default(now()) @postgres.Timestamptz(3)
+  releasedAt    DateTime?
+ 
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+ 
+  @@index([userId, status])
+  @@index([sessionId])
+  @@map("wallet_holds")
+}
+ 
+ 
+model WalletLedger {
+  id              String               @id @default(uuid()) @postgres.Uuid
+  userId          String               @postgres.Uuid
+  sessionId       String?              @postgres.Uuid
+  amount          Decimal              @postgres.Decimal(12, 2)
+  type            TransactionType    
+  balanceAfter    Decimal              @postgres.Decimal(12, 2)
+  description     String?              @postgres.VarChar(500)
+  createdAt       DateTime             @default(now()) @postgres.Timestamptz(3)
+   
+  user            User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+ 
+  // Indexes
+  @@index([userId, createdAt])
+  @@index([sessionId])
+  @@index([createdAt])
+  @@map("wallet_ledger")
+}
+ 
+model Transaction {
+  id            String                  @id @default(uuid()) @postgres.Uuid
+  userId        String                  @postgres.Uuid
+  amount        Decimal                 @postgres.Decimal(12, 2)
+  type          TransactionType    
+  status        TransactionStatus       @default(PENDING)
+  reference     String?                 @postgres.VarChar(255)
+  createdAt     DateTime                @default(now()) @postgres.Timestamptz(3)
+  updatedAt     DateTime                @updatedAt @postgres.Timestamptz(3)
+ 
+  // Relations
+  user          User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+ 
+  // Indexes
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([createdAt])
+  @@index([reference])
+  @@map("transactions")
+}
+ 
+model Payment {
+  id            String                @id @default(uuid()) @postgres.Uuid
+  userId        String                @postgres.Uuid
+  sessionId     String?               @postgres.Uuid
+  amount        Decimal               @postgres.Decimal(12, 2)
+  method        PaymentMethod  
+  status        TransactionStatus     @default(PENDING)
+  gatewayRef    String?               @postgres.VarChar(255)
+  createdAt     DateTime              @default(now()) @postgres.Timestamptz(3)
+  updatedAt     DateTime              @updatedAt @postgres.Timestamptz(3)
+ 
+  // Relations    
+  user          User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session       ChargingSession?      @relation(fields: [sessionId], references: [id])
+ 
+  // Indexes
+  @@index([userId, createdAt])
+  @@index([sessionId])
+  @@index([status])
+  @@index([gatewayRef])
+  @@map("payments")
+}
+ 
+// --- RFID & ACCESS ---
+model RfidCard {
+  id           String          @id @default(uuid()) @postgres.Uuid
+  userId       String          @postgres.Uuid
+  uid          String          @unique @postgres.VarChar(100)
+  isActive     Boolean         @default(true)
+  createdAt    DateTime        @default(now()) @postgres.Timestamptz(3)
+  updatedAt    DateTime        @updatedAt @postgres.Timestamptz(3)
+         
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+ 
+  // Indexes
+  @@index([userId])
+  @@index([isActive])
+  @@map("rfid_cards")
+}
+ 
+// --- SUBSCRIPTIONS ---
+model SubscriptionPlan {
+  id              String            @id @default(uuid()) @postgres.Uuid
+  name            String            @postgres.VarChar(100)
+  monthlyFee      Decimal           @postgres.Decimal(12, 2)
+  discountPct     Int               @postgres.SmallInt
+  isActive        Boolean           @default(true)
+  createdAt       DateTime          @default(now()) @postgres.Timestamptz(3)
+  updatedAt       DateTime          @updatedAt @postgres.Timestamptz(3)
+ 
+  // Relations
+  subscriptions   UserSubscription[]
+ 
+  // Indexes
+  @@index([isActive])
+  @@map("subscription_plans")
+}
+ 
+model UserSubscription {
+  userId      String               @postgres.Uuid
+  planId      String               @postgres.Uuid
+  start       DateTime             @postgres.Timestamptz(3)
+  end         DateTime?            @postgres.Timestamptz(3)
+  createdAt   DateTime             @default(now()) @postgres.Timestamptz(3)
+  updatedAt   DateTime             @updatedAt @postgres.Timestamptz(3)
+ 
+  // Relations      
+  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan        SubscriptionPlan     @relation(fields: [planId], references: [id])
+ 
+  @@id([userId, planId])
+  @@index([userId, end])
+  @@index([planId])
+  @@map("user_subscriptions")
+}
+ 
+// --- REVIEWS ---
+model StationReview {
+  id          String          @id @default(uuid()) @postgres.Uuid
+  userId      String          @postgres.Uuid
+  stationId   String          @postgres.Uuid
+  rating      Int             @postgres.SmallInt
+  media       String?
+  comment     String?         @postgres.Text
+  createdAt   DateTime        @default(now()) @postgres.Timestamptz(3)
+  updatedAt   DateTime        @updatedAt @postgres.Timestamptz(3)
+ 
+  // Relations
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  station     ChargingStation @relation(fields: [stationId], references: [id], onDelete: Cascade)
+ 
+  @@unique([userId, stationId])
+  @@index([stationId, rating])
+  @@index([createdAt])
+  @@map("station_reviews")
+}
+ 
+// --- SUPPORT ---
+model Ticket {
+  id          String            @id @default(uuid()) @postgres.Uuid
+  userId      String            @postgres.Uuid
+  stationId   String?           @postgres.Uuid
+  subject     String            @postgres.VarChar(255)
+  description String            @postgres.Text
+  status      TicketStatus      @default(OPEN)
+  priority    TicketPriority    @default(MEDIUM)
+  createdAt   DateTime          @default(now()) @postgres.Timestamptz(3)
+  updatedAt   DateTime          @updatedAt @postgres.Timestamptz(3)
+  resolvedAt  DateTime?         @postgres.Timestamptz(3)
+ 
+  // Relations
+  user    User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  station ChargingStation?      @relation(fields: [stationId], references: [id])
+ 
+  // Indexes
+  @@index([userId, status])
+  @@index([stationId, status])
+  @@index([status, priority, createdAt])
+  @@index([createdAt])
+  @@map("tickets")
+}
+ 
+// --- CHAT ---
+model ChatSession {
+  id        String      @id @default(uuid()) @postgres.Uuid
+  userId    String      @postgres.Uuid
+  isActive  Boolean     @default(true)
+  createdAt DateTime    @default(now()) @postgres.Timestamptz(3)
+  updatedAt DateTime    @updatedAt @postgres.Timestamptz(3)
+ 
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+ 
+  // Indexes
+  @@index([userId, isActive])
+  @@index([createdAt])
+  @@map("chat_sessions")
+}
