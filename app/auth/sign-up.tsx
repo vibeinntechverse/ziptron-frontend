@@ -44,6 +44,14 @@ export default function SignUp() {
   const scaleAnim = useRef(new Animated.Value(0.85)).current
   const opacityAnim = useRef(new Animated.Value(0)).current
 
+  /* Redirect if already signed in */
+  useEffect(() => {
+    if (isLoaded && isSignedIn) {
+      console.log('✅ User already signed in, redirecting to home...')
+      router.replace('/home')
+    }
+  }, [isLoaded, isSignedIn])
+
   useEffect(() => {
     Animated.parallel([
       Animated.timing(scaleAnim, {

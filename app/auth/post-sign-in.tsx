@@ -27,16 +27,16 @@ export default function PostSignIn() {
       }
 
       try {
-        // 4. Call your backend token generation
-        // user.id is now guaranteed to be a string
+        // 4. Call your backend token generation (cookies will be set)
         await generateBackendTokens(user.id);
         
         // 5. Success! Now go to the home page
         router.replace('/home');
       } catch (error) {
         console.error("Post-Sign-In Token Error:", error);
-        // If backend fails, you might want to alert the user or logout
-        router.replace('/auth/sign-in');
+        // If backend fails, still allow user to proceed (backend might be down)
+        console.warn("⚠️ Backend token generation failed - please check if backend is running");
+        router.replace('/home');
       }
     };
 

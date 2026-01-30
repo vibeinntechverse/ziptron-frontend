@@ -28,13 +28,13 @@ interface VehicleBottomSheetProps {
   onAddNew: () => void;
 }
 
-export default function VehicleBottomSheet({
+const VehicleBottomSheet = ({
   visible,
   onClose,
   vehicles = [],
   onApply,
   onAddNew,
-}: VehicleBottomSheetProps) {
+}: VehicleBottomSheetProps) => {
   // 3. Type the state
   const [selected, setSelected] = useState<Vehicle | null>(null)
 
@@ -197,3 +197,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
 })
+
+// Export memoized component to prevent unnecessary re-renders
+export default React.memo(VehicleBottomSheet)

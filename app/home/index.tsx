@@ -1,7 +1,6 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
 import { View, StyleSheet, TouchableOpacity, Image, Text, ImageSourcePropType } from 'react-native'
 import { useRouter } from 'expo-router'
-import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as Location from 'expo-location'
 
 // Components
@@ -10,7 +9,8 @@ import SearchBar, { SearchLocation } from './components/SearchBar'
 import Filters from './components/Filters'
 import StationCard from './components/StationCard'
 import VehicleBottomSheet, { Vehicle } from './components/VehicleBottomSheet'
-import GoogleMap from './components/GoogleMap' 
+import GoogleMap from './components/GoogleMap'
+import { useVehicleStore } from '../store/useVehicleStore' 
 
 // 1. Define Interfaces
 interface LocationData {
@@ -31,8 +31,11 @@ interface Station {
 export default function Home() {
   const router = useRouter()
 
+  // Use Zustand store with separate selectors to avoid infinite loop
+  const selectedVehicle = useVehicleStore((state) => state.selectedVehicle)
+  const vehicles = useVehicleStore((state) => state.vehicles)
+  
   // 2. Type the State
-  const [vehicle, setVehicle] = useState<Vehicle | null>(null)
   const [sheetOpen, setSheetOpen] = useState<boolean>(false)
   
   // 📍 Map State
@@ -42,31 +45,33 @@ export default function Home() {
 
   /* 🔐 1. CHECK VEHICLE ON LOAD */
   useEffect(() => {
-    const loadVehicle = async () => {
-      const stored = await AsyncStorage.getItem('USER_VEHICLE')
-      if (!stored) {
-        router.replace('/home/add-vehicle')
-      } else {
-        setVehicle(JSON.parse(stored))
-      }
+    if (vehicles.length === 0) {
+      router.replace('/home/add-vehicle')
     }
-    loadVehicle()
-  }, [])
+  }, [vehicles.length, router])
 
   /* 📍 2. GET USER LOCATION */
   useEffect(() => {
+    let isMounted = true
+    
     ;(async () => {
       const { status } = await Location.requestForegroundPermissionsAsync()
-      if (status !== 'granted') return
+      if (status !== 'granted' || !isMounted) return
 
       const loc = await Location.getCurrentPositionAsync({})
-      setUserLocation({
-        latitude: loc.coords.latitude,
-        longitude: loc.coords.longitude,
-        latitudeDelta: 0.05,
-        longitudeDelta: 0.05,
-      })
+      if (isMounted) {
+        setUserLocation({
+          latitude: loc.coords.latitude,
+          longitude: loc.coords.longitude,
+          latitudeDelta: 0.05,
+          longitudeDelta: 0.05,
+        })
+      }
     })()
+    
+    return () => {
+      isMounted = false
+    }
   }, [])
 
   /* ⚡ 3. LOAD DUMMY STATIONS */
@@ -78,20 +83,35 @@ export default function Home() {
     ])
   }, [])
 
-  if (!vehicle) return null
+  // Memoize callbacks to prevent unnecessary re-renders
+  const handleLocationSelect = useCallback((loc: SearchLocation) => {
+    setDestination({
+      latitude: loc.latitude,
+      longitude: loc.longitude,
+      latitudeDelta: 0.01,
+      longitudeDelta: 0.01
+    })
+  }, [])
+
+  const handleVehicleApply = useCallback((v: Vehicle) => {
+    useVehicleStore.getState().selectVehicle(v)
+    setSheetOpen(false)
+  }, [])
+
+  const handleAddNew = useCallback(() => {
+    setSheetOpen(false)
+    router.push('/home/add-vehicle')
+  }, [router])
+
+  if (!selectedVehicle) return null
 
   return (
     <View style={styles.container}>
       {/* HEADER & SEARCH */}
-      <Header vehicle={vehicle} />
+      <Header vehicle={selectedVehicle} />
       
       {/* 🔍 Search Bar updates 'destination' */}
-      <SearchBar onLocationSelect={(loc: SearchLocation) => setDestination({
-        latitude: loc.latitude,
-        longitude: loc.longitude,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01
-      })} />
+      <SearchBar onLocationSelect={handleLocationSelect} />
 
       <Filters />
 
@@ -104,7 +124,7 @@ export default function Home() {
           source={require('../../assets/charging.png')}
           style={styles.vehicleImage}
         />
-        <Text style={styles.vehicleText}>{vehicle.name}</Text>
+        <Text style={styles.vehicleText}>{selectedVehicle.name}</Text>
       </TouchableOpacity>
 
       {/* 🗺️ MAP */}
@@ -122,16 +142,10 @@ export default function Home() {
       {/* BOTTOM SHEET */}
       <VehicleBottomSheet
         visible={sheetOpen}
-        vehicles={vehicle ? [vehicle] : []}
+        vehicles={vehicles}
         onClose={() => setSheetOpen(false)}
-        onAddNew={() => {
-          setSheetOpen(false)
-          router.push('/home/add-vehicle')
-        }}
-        onApply={(v: Vehicle) => {
-          setVehicle(v)
-          setSheetOpen(false)
-        }}
+        onAddNew={handleAddNew}
+        onApply={handleVehicleApply}
       />
     </View>
   )

@@ -4,13 +4,6 @@ import axios, {
   AxiosResponse, 
   AxiosError 
 } from 'axios';
-import { tokenStorage } from '../auth/tokenStorage';
-
-// Define the shape of your Token Response for safety
-interface TokenResponse {
-  accessToken: string;
-  refreshToken: string;
-}
 
 // Ensure the environment variable is treated as a string
 const BASE_URL: string = process.env.EXPO_PUBLIC_API_BASE_URL || "https://halterlike-arielle-augmented.ngrok-free.dev/api/v1";
@@ -18,6 +11,7 @@ const BASE_URL: string = process.env.EXPO_PUBLIC_API_BASE_URL || "https://halter
 const api: AxiosInstance = axios.create({
   baseURL: BASE_URL,
   timeout: 15000,
+  withCredentials: true, // Enable cookies for authentication
   headers: {
     'Content-Type': 'application/json',
   },
@@ -28,10 +22,8 @@ const api: AxiosInstance = axios.create({
    ============================ */
 api.interceptors.request.use(
   async (config: InternalAxiosRequestConfig) => {
-    const token = await tokenStorage.getAccessToken();
-    if (token && config.headers) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
+    // Cookies are automatically sent with withCredentials: true
+    // No need to manually add Authorization header
     return config;
   },
   (error: AxiosError) => Promise.reject(error)
@@ -50,43 +42,35 @@ api.interceptors.response.use(
   async (error: AxiosError) => {
     const originalRequest = error.config as CustomAxiosRequestConfig;
 
-    // Check if 401 and if we haven't retried yet
+    // Check if 401 (unauthorized)
     if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
       originalRequest._retry = true;
 
       try {
-        const refreshToken = await tokenStorage.getRefreshToken();
-        if (!refreshToken) throw new Error('No refresh token available');
-
-        // Call refresh endpoint
-        const res = await axios.post<TokenResponse>(
+        // Try to refresh tokens via cookie-based endpoint
+        await axios.post(
           `${BASE_URL}/auth/refresh-token`,
-          { refreshToken }
+          {},
+          { 
+            timeout: 10000,
+            withCredentials: true // Cookies will be sent and updated
+          }
         );
 
-        const { accessToken, refreshToken: newRefresh } = res.data;
-
-        await tokenStorage.setTokens({
-          accessToken,
-          refreshToken: newRefresh,
-        });
-
-        // Update authorization header with new token
-        if (originalRequest.headers) {
-          originalRequest.headers.Authorization = `Bearer ${accessToken}`;
-        }
-        
-        // Ensure the retry uses the correct baseURL
-        originalRequest.baseURL = BASE_URL;
-
-        // Retry the original request
+        // Retry the original request with new cookies
         return api(originalRequest);
       } catch (err) {
-        console.error("Session expired, clearing tokens.");
-        await tokenStorage.clear();
+        console.error("Session expired or refresh failed:", err);
+        // Redirect to login or emit event
         return Promise.reject(err);
       }
     }
+    
+    // Handle network errors
+    if (!error.response) {
+      console.error('Network error - no response received:', error.message);
+    }
+    
     return Promise.reject(error);
   }
 );

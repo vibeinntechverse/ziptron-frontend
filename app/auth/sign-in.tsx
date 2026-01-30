@@ -33,6 +33,14 @@ export default function SignIn() {
   const scaleAnim = useRef(new Animated.Value(0.85)).current
   const opacityAnim = useRef(new Animated.Value(0)).current
 
+  /* Redirect if already signed in */
+  useEffect(() => {
+    if (isLoaded && isSignedIn) {
+      console.log('✅ User already signed in, redirecting to home...')
+      router.replace('/home')
+    }
+  }, [isLoaded, isSignedIn])
+
   useEffect(() => {
     // Start Animation
     Animated.parallel([
@@ -68,16 +76,8 @@ export default function SignIn() {
         if (res.createdSessionId) {
           await setActive({ session: res.createdSessionId })
           
-          // 🔐 Generate Backend Tokens
-          // Fix: createdUserId doesn't exist on SignInResource.
-          // Access 'id' from userData by casting to any to bypass strict type check.
-          const userId = (res.userData as any)?.id;
-          
-          if (userId) {
-             await generateBackendTokens(userId)
-          }
-
-          // Redirect to the loading page to ensure tokens are ready
+          // Redirect to post-sign-in where user data will be available
+          // The user ID will be accessed via useUser() hook in post-sign-in.tsx
           router.replace('/auth/post-sign-in')
         }
       } else {
@@ -109,20 +109,7 @@ export default function SignIn() {
       if (createdSessionId && setSSOActive) {
         await setSSOActive({ session: createdSessionId })
 
-        // ⏳ Wait for user data to propagate
-        await new Promise((resolve) => setTimeout(resolve, 500))
-
-        // 🔐 Generate Backend Tokens
-        // user object might still be stale, check properly
-        const clerkUserId = user?.id 
-        
-        if (clerkUserId) {
-           await generateBackendTokens(clerkUserId)
-        } else {
-           console.log("User ID not immediately available, redirection will handle it...")
-        }
-
-        // Consistent redirection
+        // Redirect to post-sign-in where user data will be properly loaded
         router.replace('/auth/post-sign-in')
       }
     } catch (err: any) {

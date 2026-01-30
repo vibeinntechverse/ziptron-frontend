@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react'
+import React, { useRef, useEffect, useCallback } from 'react'
 import { StyleSheet, View, Dimensions } from 'react-native'
 import MapView, { Marker, PROVIDER_GOOGLE, LatLng } from 'react-native-maps'
 import MapViewDirections from 'react-native-maps-directions'
@@ -31,11 +31,11 @@ interface GoogleMapProps {
   stations?: Station[];
 }
 
-export default function GoogleMap({ 
+const GoogleMapComponent = ({ 
   userLocation, 
   destination, 
   stations = [] 
-}: GoogleMapProps) {
+}: GoogleMapProps) => {
   // 4. Type the Ref correctly
   const mapRef = useRef<MapView | null>(null)
 
@@ -48,6 +48,16 @@ export default function GoogleMap({
       })
     }
   }, [destination, userLocation])
+
+  // Memoize callbacks
+  const handleDirectionsReady = useCallback((result: any) => {
+    console.log(`Distance: ${result.distance} km`)
+    console.log(`Duration: ${result.duration} min`)
+  }, [])
+
+  const handleDirectionsError = useCallback((errorMessage: string) => {
+    console.error('Routing Error:', errorMessage)
+  }, [])
 
   return (
     <View style={styles.container}>
@@ -104,19 +114,17 @@ export default function GoogleMap({
             strokeWidth={4}
             strokeColor="#3b82f6" // Blue route line
             optimizeWaypoints={true}
-            onReady={(result) => {
-              console.log(`Distance: ${result.distance} km`)
-              console.log(`Duration: ${result.duration} min`)
-            }}
-            onError={(errorMessage) => {
-              console.error('Routing Error:', errorMessage)
-            }}
+            onReady={handleDirectionsReady}
+            onError={handleDirectionsError}
           />
         )}
       </MapView>
     </View>
   )
 }
+
+// Export memoized component to prevent unnecessary re-renders
+export default React.memo(GoogleMapComponent)
 
 const styles = StyleSheet.create({
   container: {
